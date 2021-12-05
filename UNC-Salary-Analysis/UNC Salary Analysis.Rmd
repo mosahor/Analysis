@@ -1,0 +1,232 @@
+---
+title: "UNC Salary Analysis"
+author: "MO SAHOR"
+date:  " 02/13/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+Universities are typically opaque, governmental institutions. To be transparent to tax payers, many public schools, such as the University of North Carolina, openly report **[salary information](http://www.newsobserver.com/news/databases/public-salaries/)**. In this project, we will analyze this information from 2017 to answer pivotal questions that have lived on over the course of time.
+
+To answer all the questions, we will need the R package `tidyverse` to make figures and utilize `dplyr` functions.
+
+```{r, message=FALSE}
+library(dplyr)
+library(tidyverse)
+```
+
+
+First we load the salary dataset using and name it salary.
+```{r}
+salary <- read_csv("UNC_System_Salaries Search and Report.csv", show_col_types = FALSE)
+names(salary)
+```
+
+
+Now, we will explore the information that is contained in this dataset.
+```{r}
+names(salary)
+```
+
+
+Next, lets examine the type of data contained in these different variables.
+```{r}
+str(salary, give.attr=F)
+```
+
+
+Notice that the variable "hiredate" is recorded as a character. I will first modify the original dataset to change this to a date variable with the format *mm/dd/yyyy*. Then, I will remove the hyphens to create a numeric variable as *yyyymmdd*.
+```{r}
+salary$hiredate = as.Date(salary$hiredate, format = '%m/%d/%Y')
+salary$hiredate = as.numeric(gsub('-','', salary$hiredate))
+```
+
+
+Now lets view the first 5 rows of the modified data.
+```{r}
+head(salary, 5)
+```
+
+Selecting the features I am interest in.
+```{r}
+salary2 = select(salary, 'Name', 'dept', 'position', 'hiredate', 'exempt', 'totalsal')
+names(salary2)
+```
+
+Renaming the features
+```{r}
+salary3 = rename(salary2, Department=dept, Job=position, Exempt=exempt, Salary=totalsal  )
+head(salary3)
+```
+
+Creating a new variable called HireYear from the hiredate column that only contains the year of the date 
+```{r}
+salary4 = mutate(salary3, HireYear = floor(hiredate/10000))
+str(salary4)
+```
+
+Creating another variable from HireYear called YrsEmployed that contains the number of years a staff has been emloyed.
+```{r}
+salary5 = mutate(salary4, YrsEmployed = 2017 - HireYear)
+str(salary5)
+```
+
+Sorting the data by Years Employed.
+```{r}
+salary5%>%
+  arrange(YrsEmployed)%>%
+  head(10)
+```
+
+Dropping hiredate and HireYear columns and sorting the data by years employed and department, then making years employed and salary columns first 2 columns in the dataset. 
+```{r}
+salary.final = salary5 %>% 
+  select(-hiredate, -HireYear) %>% 
+  arrange(YrsEmployed, Department) %>% 
+  select(YrsEmployed, Salary, everything())
+head(salary.final, 10)
+```
+
+Seeing if there are any null values.
+```{r}
+anyNA(salary.final)
+```
+
+
+Adding a variable called lessthan6 that returns true if salary is less than six figures and false if more than six figures.
+```{r}
+sixfig_jobs = mutate(salary.final, lessthan6 = Salary <= 100000 )  
+head(sixfig_jobs)
+```
+
+
+How many employees earn more than six figure at UNC and how many do not? From those that earn six figures and don't, how many are under the State Personnel Act?
+
+The State Personnel Act is meant to cover employees whose primary job responsibilities are in emergency management coordination. There salary is funded, in whole or in part, by federal homeland security or emergency management funds. 
+
+Plotting graph to visualize answer.
+
+```{r}
+ggplot(sixfig_jobs, aes(x = lessthan6)) +
+  geom_bar(aes(fill = Exempt)) +
+  geom_text(aes(label=..count..,group=Exempt), stat='count', vjust=-1, hjust =0.5, color="black",size=3.5)
+
+```
+We can see from the chart above that 3112 Employees earn more than six figures and 6341 Employees earn less. From those that earn more than six figures, 178 are Subjected to State Personnel Act, which is 5.7%. 6341 Employees earn less than six figures and from those that earn less than six figures, 3015 are Subjected to State Personnel Act, which is 47.5%. 
+From this we can also conclude that the ratio of Employees who are under State Personnel Act earn way less than those who are Exempt from State Personnel Act.
+
+
+Lets now look at some departments at UNC and answer some questions based on them.
+
+What is the average salary of employees in the Computer Science Department?
+```{r}
+compsal = salary.final %>% 
+  filter(Department == 'Computer Science') %>% 
+  select(Salary) %>% 
+  sapply(mean)
+
+ cat('Average Computer Science Department Salary is ', compsal,'k')
+```
+
+
+How many employees have worked in Psychology and Neuroscience between 4 and 7 years (inclusive) and are exempt from personnel act?
+```{r}
+
+n = salary.final %>% 
+  filter(Department == 'Psychology and Neuroscience') %>% 
+  filter(YrsEmployed >= 4 & YrsEmployed <= 7) %>% 
+  filter(Exempt == 'Exempt from Personnel Act') %>% 
+  nrow()
+
+cat(n, 'Employees')
+```
+
+
+What is the mean salary of employees from the Biology department who are professors, associate professors, or assistant professors?
+```{r}
+m = salary.final %>% 
+  filter(Department == 'Biology') %>% 
+  filter(Job == 'Professor' | 
+           Job == 'Associate Professor' | 
+           Job == "Assistant Professor") %>% 
+  select(Salary) %>% 
+  sapply(mean)
+
+cat('Mean salary of employees from the Biology department who are professors, associate professors, or assistant professors is', m,'k')
+```
+
+
+Creating a grouped summary based off combinations of "Department" and "YrsEmployed".
+The summary will report all of the following statistics:
+- number of employees for each combination
+- average salary for each combination
+- standard deviation of salary for each combination
+- minimum salary for each combination
+- maximum salary for each combination
+
+```{r, message=FALSE}
+deptyear_summary = salary.final %>% 
+  group_by(Department, YrsEmployed) %>% 
+  summarise('numOfEmployees' = n(), 
+            'avgSalary' = mean(Salary), 
+            'stdSalary' = sd(Salary), 
+            'minSalary' = min(Salary), 
+            'maxSalary' = max(Salary))
+
+deptyear_summary %>% ungroup() %>% head(10)
+```
+
+Testing if the summary is accurate.
+```{r}
+salary.final %>% 
+  filter(Department == 'A and S - Business Center' & YrsEmployed == 0)
+```
+We can see that the summary is accurate because there are 4 employees in 'A and S - Business Center' Department with YrsEmployed = 0.
+
+
+List 5 departments that award the lowest average salary for employees who have been employed for 3 years.
+```{r}
+deptyear_summary %>% 
+  arrange(-avgSalary) %>% 
+  filter(YrsEmployed == 3) %>% 
+  head(5)
+```
+
+
+List 5 departments has the highest number of employees who have been employed for 10.
+```{r}
+deptyear_summary %>% 
+  arrange(-numOfEmployees) %>% 
+  filter(YrsEmployed == 10) %>% 
+  head(5)
+```
+
+
+What is the relationship between average salary and the years employeed?
+```{r}
+ggplot(deptyear_summary, aes(x = YrsEmployed, y = avgSalary/1000 )) +
+  geom_point() +
+  geom_smooth(method = 'lm', color = 'red') + 
+  xlab('Years Employed') +
+  ylab('Average Salary (in Thousands)') 
+```
+There is a weak positive linear relationship between Average Salary and Years of Experience meaning the longer you are employed, the higher your earn but some exceptions occur where less employment years get paid higher salary.
+
+
+Total number of departments. For the sake of space, I am not going to list them all.
+```{r}
+length(unique(deptyear_summary$Department))
+```
+
+
+Let's see the relationship between years employed and average salary for my top 4 favorite departments. 
+```{r}
+temp = deptyear_summary %>% filter(Department == "Computer Science" | Department == "Psychology and Neuroscience" | Department == "Statistics and Operations Res" | Department == "Law") 
+
+ggplot(temp, aes(x = YrsEmployed, y = avgSalary/1000, color = Department)) + geom_point() + geom_smooth(method = 'lm') + xlab('Years Employed') +ylab('Average Salary (in Thousands)') 
+```
+Which department has the highest starting salary? Describe their rate of increase in salary.
+
+Law department has the highest starting salary, that can be due to employees in Law department having higher level of education before they start working.
+All the departments have a positive linear relationship between years employed and average salary meaning they all get higher salary the more time they stay employed. 
